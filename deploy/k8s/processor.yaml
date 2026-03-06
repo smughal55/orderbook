@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: processor
+  labels:
+    app: alerting
+    component: processor
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      component: processor
+  template:
+    metadata:
+      labels:
+        app: alerting
+        component: processor
+    spec:
+      containers:
+        - name: processor
+          image: orderbook/processor:latest
+          args:
+            - -redis=redis:6379
+            - -kafka=kafka:9092
+            - -input-topic=raw-data
+            - -output-topic=alerts-triggered
+          ports:
+            - containerPort: 2113
+              name: metrics
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: processor
+spec:
+  selector:
+    component: processor
+  ports:
+    - port: 2113
+      name: metrics

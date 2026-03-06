@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion
+  labels:
+    app: alerting
+    component: ingestion
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      component: ingestion
+  template:
+    metadata:
+      labels:
+        app: alerting
+        component: ingestion
+    spec:
+      containers:
+        - name: ingestion
+          image: orderbook/ingestion:latest
+          args:
+            - -redis=redis:6379
+            - -kafka=kafka:9092
+            - -sources=pricefeed=ws://price-feed:8080/ws
+          ports:
+            - containerPort: 2112
+              name: metrics
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestion
+spec:
+  selector:
+    component: ingestion
+  ports:
+    - port: 2112
+      name: metrics

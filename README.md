@@ -1,52 +1,140 @@
-# Order Book
+# Order Book + Real-Time Alerting System
 
-A real-time order book engine in Go that consumes a WebSocket stream of snapshots and incremental updates, maintains sorted bid/ask price levels, and computes the median price every 200ms.
+A real-time order book engine and alerting system in Go. Ingests high-throughput data from multiple sources, evaluates single-record and trend-based alert conditions, and delivers notifications via email, SMS, and webhooks.
 
-## Architecture
+## System Architecture
 
 ```
-                 ┌───────────────────────┐
-                 │   WebSocket Server    │
-                 │  (mock or external)   │
-                 └──────────┬────────────┘
-                            │ JSON messages
-                            ▼
-┌───────────────────────────────────────────────────┐
-│                     Client                        │
-│                                                   │
-│  ┌──────────┐    ┌──────────────┐    ┌─────────┐ │
-│  │ WS Reader├───►│ ParseMessage ├───►│OrderBook│ │
-│  └──────────┘    └──────────────┘    └────┬────┘ │
-│                                           │      │
-│                  ┌──────────────┐         │      │
-│                  │ 200ms Ticker ├─────────┘      │
-│                  │  (median)    │                 │
-│                  └──────────────┘                 │
-└───────────────────────────────────────────────────┘
+Sources (WS/REST/...)
+        │
+        ▼
+┌───────────────────┐     ┌───────────────┐
+│  Ingestion Layer  │────►│     Kafka     │
+│ (Normalizer+Dedup)│     │  (raw-data)   │
+└───────────────────┘     └───────┬───────┘
+        │ Redis dedup             │
+        ▼                 ┌───────┴────────┐
+┌──────────────┐   ┌──────┴─────┐  ┌───────┴──────┐
+│  Convex DB   │   │Single-Eval │  │  Trend-Eval  │
+│ (Alert Rules)│◄──┤(expr-lang) │  │(Redis window)│
+└──────────────┘   └──────┬─────┘  └───────┬──────┘
+        ▲                 └────┬───────────┘
+   React UI                    ▼
+                      ┌────────────────┐
+                      │  Rule Engine   │
+                      │(cooldown/dedup)│
+                      └────────┬───────┘
+                               │ Kafka (alerts-triggered)
+                               ▼
+                      ┌────────────────┐
+                      │ Delivery Layer │
+                      ├────┬─────┬─────┤
+                      │Email│SMS │Hook │
+                      └────┴─────┴─────┘
 ```
-
-### Message Flow
-
-1. The **Client** opens a WebSocket connection to a feed URL.
-2. A reader goroutine deserializes each incoming JSON frame via `ParseMessage`, which dispatches to either a `SnapshotMessage` or an `UpdateMessage`.
-3. Snapshots replace the entire book; updates insert, modify, or remove a single price level.
-4. A separate goroutine fires a 200ms ticker that reads the current best bid and best ask from the book and logs the median price.
-5. Graceful shutdown is triggered by `SIGINT`/`SIGTERM`, which cancels the root context and tears down the connection.
 
 ## Project Structure
 
 ```
 orderbook/
-├── main.go              Entry point — CLI flags, signal handling, wiring
-├── orderbook.go         Core OrderBook data structure
-├── messages.go          JSON message types and parser
-├── client.go            WebSocket client + 200ms median ticker
-├── mock_server.go       Built-in mock WebSocket server
-├── orderbook_test.go    Unit tests (12 tests)
-├── integration_test.go  Integration tests (2 tests)
+├── cmd/
+│   ├── ingestion/         Normalizer gateway service
+│   ├── processor/         Single-record + trend evaluator + rule engine
+│   └── delivery/          Alert delivery service
+├── internal/
+│   ├── model/             Shared types (DataRecord, AlertRule, TriggeredAlert)
+│   ├── adapter/           Source adapters (WebSocket, REST, dedup)
+│   ├── evaluator/         Single-record and trend evaluation logic
+│   ├── ruleengine/        Rule matching, cooldown, suppression
+│   ├── delivery/          Channel dispatchers (email, SMS, webhook)
+│   └── metrics/           Prometheus instrumentation
+├── convex/
+│   ├── schema.ts          Convex DB schema (alerts, alertHistory)
+│   ├── alerts.ts          Alert CRUD mutations/queries
+│   └── alertHistory.ts    Alert history queries
+├── web/                   React + TanStack Router UI
+│   └── src/
+│       ├── App.tsx         Main app with tabs
+│       └── components/     AlertsTable, AlertHistory, CreateAlertModal
+├── deploy/
+│   ├── docker-compose.yml Local dev (Kafka, Redis, Prometheus, Grafana)
+│   ├── prometheus.yml     Prometheus scrape config
+│   └── k8s/               Kubernetes manifests
+├── main.go                Original orderbook entry point
+├── orderbook.go           Core OrderBook data structure
+├── messages.go            JSON message types and parser
+├── client.go              WebSocket client + median ticker
+├── mock_server.go         Built-in mock WebSocket server
+├── orderbook_test.go      Unit tests (12 tests)
+├── integration_test.go    Integration tests (2 tests)
 ├── go.mod
 └── go.sum
 ```
+
+## Alerting System
+
+### Services
+
+The alerting system runs as three independent Go services communicating via Kafka:
+
+**Ingestion** (`cmd/ingestion/`) — Connects to data sources via pluggable adapters, normalizes records into a common `DataRecord` envelope, deduplicates via Redis `SET NX`, and publishes to Kafka `raw-data` topic.
+
+```bash
+go run ./cmd/ingestion -redis localhost:6379 -kafka localhost:9092 -sources pricefeed=ws://localhost:8080/ws
+```
+
+**Processor** (`cmd/processor/`) — Consumes from `raw-data`, runs two parallel evaluation paths (single-record via `expr-lang/expr` and trend via Redis sliding windows), applies cooldown/suppression, and publishes triggered alerts to `alerts-triggered`.
+
+```bash
+go run ./cmd/processor -redis localhost:6379 -kafka localhost:9092
+```
+
+**Delivery** (`cmd/delivery/`) — Consumes from `alerts-triggered`, dispatches to email/SMS/webhook handlers with exponential backoff retry, failed deliveries go to a dead-letter topic.
+
+```bash
+go run ./cmd/delivery -kafka localhost:9092
+```
+
+### Alert Configuration UI
+
+A React app using TanStack Router and Convex for real-time data:
+
+```bash
+cd web && npm install && npm run dev
+```
+
+### Infrastructure (Local Dev)
+
+```bash
+cd deploy && docker-compose up -d
+```
+
+This starts Kafka, Redis, Prometheus, and Grafana. Prometheus scrapes metrics from all three services; Grafana is available at `http://localhost:3000` (admin/admin).
+
+### Alert Rule Types
+
+- **Single Record**: Evaluates each record individually against an expression (e.g., `payload.price > 150`)
+- **Trend**: Aggregates values over a sliding time window using Redis sorted sets. Supports avg, max, min, and rate_of_change aggregations.
+
+### Delivery Channels
+
+- **Email**: Stub handler (plug in SendGrid/AWS SES)
+- **SMS**: Stub handler (plug in Twilio)
+- **Webhook**: Full implementation with HTTP POST, exponential backoff retry (3 attempts)
+
+### Key Dependencies
+
+| Dependency | Purpose |
+|---|---|
+| [IBM/sarama](https://github.com/IBM/sarama) | Kafka producer and consumer |
+| [redis/go-redis](https://github.com/redis/go-redis) | Redis client (dedup, windows, cooldown) |
+| [expr-lang/expr](https://github.com/expr-lang/expr) | Expression evaluator for alert conditions |
+| [prometheus/client_golang](https://github.com/prometheus/client_golang) | Metrics instrumentation |
+| [gorilla/websocket](https://github.com/gorilla/websocket) | WebSocket client and server |
+
+---
+
+## Original Order Book
 
 ## Design Decisions
 
