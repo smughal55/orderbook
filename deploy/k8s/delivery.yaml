@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: delivery
+  labels:
+    app: alerting
+    component: delivery
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      component: delivery
+  template:
+    metadata:
+      labels:
+        app: alerting
+        component: delivery
+    spec:
+      containers:
+        - name: delivery
+          image: orderbook/delivery:latest
+          args:
+            - -kafka=kafka:9092
+            - -topic=alerts-triggered
+            - -deadletter=alerts-deadletter
+          ports:
+            - containerPort: 2114
+              name: metrics
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: delivery
+spec:
+  selector:
+    component: delivery
+  ports:
+    - port: 2114
+      name: metrics
