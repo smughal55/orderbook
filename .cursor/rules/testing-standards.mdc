@@ -1,0 +1,15 @@
+---
+description: Require step-level tests and final integration tests
+alwaysApply: true
+---
+
+When a step adds or changes logic:
+- add or update unit tests where appropriate
+- cover happy path, edge cases, and failure cases when reasonable
+- keep unit tests scoped to the step
+
+When a feature or milestone is complete:
+- define or update integration tests for completed workflows
+- validate service interactions, database behavior, and messaging/event flows where relevant
+
+Prefer deterministic test verification over vague validation.

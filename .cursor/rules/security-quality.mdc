@@ -1,0 +1,15 @@
+---
+description: Enforce security, performance, indexing, and edge-case review dimensions
+alwaysApply: true
+---
+
+Always consider:
+- OWASP-style security risks
+- authentication and authorization implications
+- input validation and injection risks
+- secrets handling
+- abuse prevention and rate limiting where relevant
+- performance and scaling implications
+- hot query paths and indexing implications
+- edge cases and failure modes
+- observability and operational impact where relevant

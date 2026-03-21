@@ -1,0 +1,12 @@
+---
+description: Enforce narrow implementation scope for agent work
+alwaysApply: true
+---
+
+When implementing a step:
+- modify no more than 2–3 files unless explicitly approved
+- inspect only the minimum relevant files
+- do not refactor unrelated code
+- do not implement future steps
+- prefer deterministic verification
+- stop and explain if the task cannot be completed safely within scope
