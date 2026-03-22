@@ -11,11 +11,13 @@ import (
 // Config holds all runtime configuration for the alerting system services.
 // Values are loaded from environment variables via Load().
 type Config struct {
-	NATSUrl    string
-	RedisUrl   string
+	NATSUrl     string
+	RedisUrl    string
 	DatabaseUrl string
-	APIAddr    string
-	LogLevel   string
+	APIAddr     string
+	LogLevel    string
+
+	WSSUrl string // WebSocket feed URL for the ingestion service adapter
 
 	SMTPHost string
 	SMTPPort int
@@ -50,6 +52,7 @@ func Load() (*Config, error) {
 		DatabaseUrl: dbURL,
 		APIAddr:     envOr("API_ADDR", ":8081"),
 		LogLevel:    envOr("LOG_LEVEL", "info"),
+		WSSUrl:      envOr("WSS_URL", "ws://localhost:8080/ws"),
 
 		SMTPHost: os.Getenv("SMTP_HOST"),
 		SMTPPort: smtpPort,
@@ -70,10 +73,10 @@ func (c *Config) String() string {
 	twilioToken := maskSecret(c.TwilioToken)
 
 	return fmt.Sprintf(
-		"Config{NATSUrl:%q RedisUrl:%q DatabaseUrl:%q APIAddr:%q LogLevel:%q "+
+		"Config{NATSUrl:%q RedisUrl:%q DatabaseUrl:%q APIAddr:%q LogLevel:%q WSSUrl:%q "+
 			"SMTPHost:%q SMTPPort:%d SMTPUser:%q SMTPPass:%s "+
 			"TwilioSID:%q TwilioToken:%s TwilioFrom:%q}",
-		c.NATSUrl, c.RedisUrl, c.DatabaseUrl, c.APIAddr, c.LogLevel,
+		c.NATSUrl, c.RedisUrl, c.DatabaseUrl, c.APIAddr, c.LogLevel, c.WSSUrl,
 		c.SMTPHost, c.SMTPPort, c.SMTPUser, smtpPass,
 		c.TwilioSID, twilioToken, c.TwilioFrom,
 	)

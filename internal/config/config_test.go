@@ -60,7 +60,7 @@ func TestLoad_Defaults_Applied(t *testing.T) {
 	withDatabaseURL(t)
 	// Unset all optional vars to confirm defaults are applied.
 	for _, key := range []string{
-		"NATS_URL", "REDIS_URL", "API_ADDR", "LOG_LEVEL", "SMTP_PORT",
+		"NATS_URL", "REDIS_URL", "API_ADDR", "LOG_LEVEL", "SMTP_PORT", "WSS_URL",
 	} {
 		t.Setenv(key, "")
 	}
@@ -83,6 +83,9 @@ func TestLoad_Defaults_Applied(t *testing.T) {
 	}
 	if cfg.SMTPPort != 587 {
 		t.Errorf("expected default SMTP_PORT 587, got: %d", cfg.SMTPPort)
+	}
+	if cfg.WSSUrl != "ws://localhost:8080/ws" {
+		t.Errorf("expected default WSS_URL %q, got: %q", "ws://localhost:8080/ws", cfg.WSSUrl)
 	}
 }
 
@@ -230,5 +233,47 @@ func TestString_BothSecretsPresent(t *testing.T) {
 	}
 	if strings.Contains(out, "tok1") {
 		t.Errorf("TwilioToken must be masked in String()")
+	}
+}
+
+// --- WSSUrl ---
+
+func TestLoad_WSSUrl_Custom(t *testing.T) {
+	withDatabaseURL(t)
+	t.Setenv("WSS_URL", "wss://feed.example.com/stream")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WSSUrl != "wss://feed.example.com/stream" {
+		t.Errorf("WSSUrl: want %q, got %q", "wss://feed.example.com/stream", cfg.WSSUrl)
+	}
+}
+
+func TestLoad_WSSUrl_WhitespacePreserved(t *testing.T) {
+	// envOr only replaces the empty string with the default; a non-empty whitespace
+	// value is an explicit (if unusual) override and must be stored as-is.
+	withDatabaseURL(t)
+	t.Setenv("WSS_URL", "   ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WSSUrl != "   " {
+		t.Errorf("whitespace WSS_URL must be preserved as-is, got: %q", cfg.WSSUrl)
+	}
+}
+
+func TestString_ContainsWSSUrl(t *testing.T) {
+	// WSSUrl is not a secret; it must appear verbatim and unmasked in String().
+	cfg := &Config{
+		DatabaseUrl: "postgres://localhost/db",
+		WSSUrl:      "wss://feed.example.com/stream",
+	}
+	out := cfg.String()
+	if !strings.Contains(out, "wss://feed.example.com/stream") {
+		t.Errorf("String() must contain WSSUrl unmasked, got: %s", out)
 	}
 }
